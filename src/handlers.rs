@@ -43,7 +43,7 @@ pub fn handle(apdu: &Apdu<'_>, response_data: &str) -> Response {
         INS_GET_VK => get_viewing_key(response_data),
         INS_GET_ADDRESS => get_address(response_data),
         0x52..=0x59 => pczt(response_data),
-        INS_GET_FIRMWARE_VERSION => firmware_version(response_data),
+        INS_GET_FIRMWARE_VERSION => firmware_version(),
         _ => canned(response_data),
     }
 }
@@ -57,12 +57,21 @@ fn get_address(response_data: &str) -> Response {
 fn pczt(response_data: &str) -> Response {
     canned(response_data)
 }
-fn firmware_version(response_data: &str) -> Response {
-    canned(response_data)
+fn firmware_version() -> Response {
+    // Ledger's firmware response is version bytes followed by SW_OK. Keep a
+    // stable mock version so clients can exercise version parsing.
+    canned(&response_data(b"80.0.0", 0x9000))
 }
 fn canned(response_data: &str) -> Response {
     Response {
         data: response_data.to_owned(),
         error: None,
     }
+}
+
+/// Encode an APDU payload followed by its two-byte status word.
+fn response_data(payload: &[u8], status: u16) -> String {
+    let mut response = payload.to_vec();
+    response.extend_from_slice(&status.to_be_bytes());
+    hex::encode(response)
 }
