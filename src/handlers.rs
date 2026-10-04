@@ -31,7 +31,12 @@ pub fn parse_apdu(bytes: &[u8]) -> Result<Apdu<'_>, &'static str> {
     })
 }
 
-pub fn handle(apdu: &Apdu<'_>, response_data: &str) -> Response {
+pub fn handle(
+    apdu: &Apdu<'_>,
+    response_data: &str,
+    seed_phrase: Option<&str>,
+    account_index: u32,
+) -> Response {
     const CLA_ZCASH: u8 = 0xE0;
     const INS_GET_VK: u8 = 0x50;
     const INS_GET_ADDRESS: u8 = 0x51;
@@ -40,19 +45,45 @@ pub fn handle(apdu: &Apdu<'_>, response_data: &str) -> Response {
         return canned(response_data);
     }
     match apdu.ins {
-        INS_GET_VK => get_viewing_key(response_data),
-        INS_GET_ADDRESS => get_address(response_data),
+        INS_GET_VK => get_viewing_key(seed_phrase, account_index),
+        INS_GET_ADDRESS => get_address(seed_phrase, account_index),
         0x52..=0x59 => pczt(response_data),
         INS_GET_FIRMWARE_VERSION => firmware_version(),
         _ => canned(response_data),
     }
 }
 
-fn get_viewing_key(response_data: &str) -> Response {
-    canned(response_data)
+fn get_viewing_key(seed_phrase: Option<&str>, account_index: u32) -> Response {
+    // GET_VK returns a big-endian u16 length followed by the UTF-8 UFVK.
+    // The value is intentionally a deterministic placeholder, not a valid
+    // cryptographic viewing key.
+    let value = format!(
+        "mock-ufvk-{}",
+        derived_value(seed_phrase, account_index, b"ufvk")
+    );
+    let mut payload = (value.len() as u16).to_be_bytes().to_vec();
+    payload.extend_from_slice(value.as_bytes());
+    canned(&response_data(&payload, 0x9000))
 }
-fn get_address(response_data: &str) -> Response {
-    canned(response_data)
+fn get_address(seed_phrase: Option<&str>, account_index: u32) -> Response {
+    // Address responses are returned as a length-prefixed UTF-8 string by
+    // the app. This placeholder deliberately carries no account/key logic.
+    let value = format!(
+        "mock-address-{}",
+        derived_value(seed_phrase, account_index, b"address")
+    );
+    let mut payload = (value.len() as u16).to_be_bytes().to_vec();
+    payload.extend_from_slice(value.as_bytes());
+    canned(&response_data(&payload, 0x9000))
+}
+
+fn derived_value(seed_phrase: Option<&str>, account_index: u32, purpose: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(seed_phrase.unwrap_or("").as_bytes());
+    hasher.update(account_index.to_be_bytes());
+    hasher.update(purpose);
+    hex::encode(hasher.finalize())
 }
 fn pczt(response_data: &str) -> Response {
     canned(response_data)

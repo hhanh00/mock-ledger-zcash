@@ -51,12 +51,9 @@ async fn main() {
     let args = Args::parse();
     // These values define the mock app context. Handlers intentionally do not
     // use them yet; no Ledger business logic is implemented.
-    let _ = (
-        &args.network,
-        &args.network_upgrade,
-        &args.seed_phrase,
-        args.account_index,
-    );
+    let seed_phrase = args.seed_phrase.clone();
+    let account_index = args.account_index;
+    let _ = (&args.network, &args.network_upgrade);
     let address = args.address;
     let port = args.port;
     let response_data = args.response_data;
@@ -70,7 +67,7 @@ async fn main() {
         .and(warp::post())
         .and(warp::body::json())
         .and(response_data)
-        .map(|request: Request, response_data: String| {
+        .map(move |request: Request, response_data: String| {
             let Ok(bytes) = hex::decode(request.apdu_hex) else {
                 return warp::reply::with_status(
                     warp::reply::json(&serde_json::json!({
@@ -88,7 +85,12 @@ async fn main() {
                 );
             };
             warp::reply::with_status(
-                warp::reply::json(&handlers::handle(&apdu, &response_data)),
+                warp::reply::json(&handlers::handle(
+                    &apdu,
+                    &response_data,
+                    seed_phrase.as_deref(),
+                    account_index,
+                )),
                 warp::http::StatusCode::OK,
             )
         });
