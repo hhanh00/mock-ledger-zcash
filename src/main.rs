@@ -39,8 +39,8 @@ struct Args {
     response_data: String,
 }
 
-#[derive(Clone, Debug, ValueEnum)]
-enum Network {
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum Network {
     Mainnet,
     Testnet,
     Regtest,
@@ -53,7 +53,8 @@ async fn main() {
     // use them yet; no Ledger business logic is implemented.
     let seed_phrase = args.seed_phrase.clone();
     let account_index = args.account_index;
-    let _ = (&args.network, &args.network_upgrade);
+    let network = args.network;
+    let _ = &args.network_upgrade;
     let address = args.address;
     let port = args.port;
     let response_data = args.response_data;
@@ -90,6 +91,7 @@ async fn main() {
                     &response_data,
                     seed_phrase.as_deref(),
                     account_index,
+                    network,
                 )),
                 warp::http::StatusCode::OK,
             )

@@ -36,6 +36,7 @@ pub fn handle(
     response_data: &str,
     seed_phrase: Option<&str>,
     account_index: u32,
+    network: crate::Network,
 ) -> Response {
     const CLA_ZCASH: u8 = 0xE0;
     const INS_GET_VK: u8 = 0x50;
@@ -45,45 +46,120 @@ pub fn handle(
         return canned(response_data);
     }
     match apdu.ins {
-        INS_GET_VK => get_viewing_key(seed_phrase, account_index),
-        INS_GET_ADDRESS => get_address(seed_phrase, account_index),
+        INS_GET_VK => get_viewing_key(seed_phrase, account_index, network),
+        INS_GET_ADDRESS => get_address(seed_phrase, account_index, network),
         0x52..=0x59 => pczt(response_data),
         INS_GET_FIRMWARE_VERSION => firmware_version(),
         _ => canned(response_data),
     }
 }
 
-fn get_viewing_key(seed_phrase: Option<&str>, account_index: u32) -> Response {
+fn get_viewing_key(
+    seed_phrase: Option<&str>,
+    account_index: u32,
+    network: crate::Network,
+) -> Response {
     // GET_VK returns a big-endian u16 length followed by the UTF-8 UFVK.
     // The value is intentionally a deterministic placeholder, not a valid
     // cryptographic viewing key.
-    let value = format!(
-        "mock-ufvk-{}",
-        derived_value(seed_phrase, account_index, b"ufvk")
-    );
+    let value = derive_ufvk(seed_phrase, account_index, network);
     let mut payload = (value.len() as u16).to_be_bytes().to_vec();
     payload.extend_from_slice(value.as_bytes());
     canned(&response_data(&payload, 0x9000))
 }
-fn get_address(seed_phrase: Option<&str>, account_index: u32) -> Response {
+fn get_address(seed_phrase: Option<&str>, account_index: u32, network: crate::Network) -> Response {
     // Address responses are returned as a length-prefixed UTF-8 string by
     // the app. This placeholder deliberately carries no account/key logic.
-    let value = format!(
-        "mock-address-{}",
-        derived_value(seed_phrase, account_index, b"address")
-    );
+    let value = derive_address(seed_phrase, account_index, network);
     let mut payload = (value.len() as u16).to_be_bytes().to_vec();
     payload.extend_from_slice(value.as_bytes());
     canned(&response_data(&payload, 0x9000))
 }
 
-fn derived_value(seed_phrase: Option<&str>, account_index: u32, purpose: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(seed_phrase.unwrap_or("").as_bytes());
-    hasher.update(account_index.to_be_bytes());
-    hasher.update(purpose);
-    hex::encode(hasher.finalize())
+fn seed(seed_phrase: Option<&str>) -> [u8; 64] {
+    use bip39::Mnemonic;
+    Mnemonic::parse(seed_phrase.unwrap_or("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"))
+        .expect("seed phrase must be a valid BIP39 mnemonic")
+        .to_seed("")
+}
+
+fn derive_ufvk(seed_phrase: Option<&str>, account_index: u32, network: crate::Network) -> String {
+    use zcash_keys::keys::UnifiedSpendingKey;
+    use zcash_protocol::consensus::{MainNetwork, TestNetwork};
+    let account = zip32::AccountId::try_from(account_index).expect("valid account index");
+    let seed = seed(seed_phrase);
+    match network {
+        crate::Network::Mainnet => UnifiedSpendingKey::from_seed(&MainNetwork, &seed, account)
+            .unwrap()
+            .to_unified_full_viewing_key()
+            .encode(&MainNetwork),
+        crate::Network::Testnet => UnifiedSpendingKey::from_seed(&TestNetwork, &seed, account)
+            .unwrap()
+            .to_unified_full_viewing_key()
+            .encode(&TestNetwork),
+        crate::Network::Regtest => {
+            let p = local_network();
+            UnifiedSpendingKey::from_seed(&p, &seed, account)
+                .unwrap()
+                .to_unified_full_viewing_key()
+                .encode(&p)
+        }
+    }
+}
+
+fn derive_address(
+    seed_phrase: Option<&str>,
+    account_index: u32,
+    network: crate::Network,
+) -> String {
+    use zcash_keys::keys::{UnifiedAddressRequest, UnifiedSpendingKey};
+    use zcash_protocol::consensus::{MainNetwork, TestNetwork};
+    let account = zip32::AccountId::try_from(account_index).expect("valid account index");
+    let seed = seed(seed_phrase);
+    match network {
+        crate::Network::Mainnet => UnifiedSpendingKey::from_seed(&MainNetwork, &seed, account)
+            .unwrap()
+            .to_unified_full_viewing_key()
+            .default_address(UnifiedAddressRequest::AllAvailableKeys)
+            .unwrap()
+            .0
+            .encode(&MainNetwork),
+        crate::Network::Testnet => UnifiedSpendingKey::from_seed(&TestNetwork, &seed, account)
+            .unwrap()
+            .to_unified_full_viewing_key()
+            .default_address(UnifiedAddressRequest::AllAvailableKeys)
+            .unwrap()
+            .0
+            .encode(&TestNetwork),
+        crate::Network::Regtest => {
+            let p = local_network();
+            UnifiedSpendingKey::from_seed(&p, &seed, account)
+                .unwrap()
+                .to_unified_full_viewing_key()
+                .default_address(UnifiedAddressRequest::AllAvailableKeys)
+                .unwrap()
+                .0
+                .encode(&p)
+        }
+    }
+}
+
+fn local_network() -> zcash_protocol::local_consensus::LocalNetwork {
+    use zcash_protocol::consensus::BlockHeight;
+    let h = Some(BlockHeight::from_u32(1));
+    zcash_protocol::local_consensus::LocalNetwork {
+        overwinter: h,
+        sapling: h,
+        blossom: h,
+        heartwood: h,
+        canopy: h,
+        nu5: h,
+        nu6: h,
+        nu6_1: h,
+        nu6_2: h,
+        nu6_3: h,
+        nu7: h,
+    }
 }
 fn pczt(response_data: &str) -> Response {
     canned(response_data)
