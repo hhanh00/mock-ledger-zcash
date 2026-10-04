@@ -1,16 +1,12 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use warp::Filter;
+
+mod handlers;
 
 #[derive(Debug, Deserialize)]
 struct Request {
     #[serde(rename = "apduHex")]
     apdu_hex: String,
-}
-
-#[derive(Debug, Serialize)]
-struct Response<'a> {
-    data: &'a str,
-    error: Option<&'static str>,
 }
 
 #[tokio::main]
@@ -33,19 +29,24 @@ async fn main() {
         .and(warp::body::json())
         .and(response_data)
         .map(|request: Request, response_data: String| {
-            if request.apdu_hex.is_empty() || hex::decode(request.apdu_hex).is_err() {
+            let Ok(bytes) = hex::decode(request.apdu_hex) else {
                 return warp::reply::with_status(
                     warp::reply::json(&serde_json::json!({
                         "error": "expected hexadecimal apduHex"
                     })),
                     warp::http::StatusCode::BAD_REQUEST,
                 );
-            }
+            };
+            let Ok(apdu) = handlers::parse_apdu(&bytes) else {
+                return warp::reply::with_status(
+                    warp::reply::json(&serde_json::json!({
+                        "error": "invalid APDU header or length"
+                    })),
+                    warp::http::StatusCode::BAD_REQUEST,
+                );
+            };
             warp::reply::with_status(
-                warp::reply::json(&Response {
-                    data: &response_data,
-                    error: None,
-                }),
+                warp::reply::json(&handlers::handle(&apdu, &response_data)),
                 warp::http::StatusCode::OK,
             )
         });
