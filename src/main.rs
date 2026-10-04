@@ -1,3 +1,4 @@
+use clap::{Parser, ValueEnum};
 use serde::Deserialize;
 use warp::Filter;
 
@@ -9,15 +10,56 @@ struct Request {
     apdu_hex: String,
 }
 
+#[derive(Debug, Parser)]
+#[command(
+    name = "mock-ledger-zcash",
+    about = "Mock Ledger Zcash app HTTP transport"
+)]
+struct Args {
+    /// Chain network used by the mock Ledger app.
+    #[arg(long, value_enum, default_value_t = Network::Mainnet)]
+    network: Network,
+    /// Network upgrade to expose to mock handlers.
+    #[arg(long)]
+    network_upgrade: Option<String>,
+    /// Optional device seed phrase used by mock handlers.
+    #[arg(long)]
+    seed_phrase: Option<String>,
+    /// Account index used by the mock Ledger app.
+    #[arg(long, default_value_t = 0)]
+    account_index: u32,
+    /// Address to bind to.
+    #[arg(long, default_value = "127.0.0.1")]
+    address: String,
+    /// TCP port to listen on.
+    #[arg(short, long, default_value_t = 9999)]
+    port: u16,
+    /// Hexadecimal APDU response returned by every mock handler.
+    #[arg(long, default_value = "9000")]
+    response_data: String,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum Network {
+    Mainnet,
+    Testnet,
+    Regtest,
+}
+
 #[tokio::main]
 async fn main() {
-    let mut args = std::env::args().skip(1);
-    let address = args.next().unwrap_or_else(|| "127.0.0.1".into());
-    let port = args
-        .next()
-        .and_then(|port| port.parse().ok())
-        .unwrap_or(9999);
-    let response_data = args.next().unwrap_or_else(|| "9000".into());
+    let args = Args::parse();
+    // These values define the mock app context. Handlers intentionally do not
+    // use them yet; no Ledger business logic is implemented.
+    let _ = (
+        &args.network,
+        &args.network_upgrade,
+        &args.seed_phrase,
+        args.account_index,
+    );
+    let address = args.address;
+    let port = args.port;
+    let response_data = args.response_data;
     if hex::decode(&response_data).is_err() {
         eprintln!("response data must be hexadecimal");
         std::process::exit(2);

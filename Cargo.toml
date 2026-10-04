@@ -6,6 +6,7 @@ license = "MIT"
 description = "A mock server for the Ledger Zcash hardware wallet, used as an e2e mocking service when testing Ledger from zkool"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
