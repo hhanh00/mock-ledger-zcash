@@ -184,6 +184,7 @@ fn local_network() -> zcash_protocol::local_consensus::LocalNetwork {
         nu6_1: h,
         nu6_2: h,
         nu6_3: h,
+        #[cfg(zcash_unstable = "nu7")]
         nu7: h,
     }
 }
