@@ -1,0 +1,8 @@
+[package]
+name = "mock-ledger-zcash"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "A mock server for the Ledger Zcash hardware wallet, used as an e2e mocking service when testing Ledger from zkool"
+
+[dependencies]
