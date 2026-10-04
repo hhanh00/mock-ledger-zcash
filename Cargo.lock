@@ -1014,6 +1014,7 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "warp",
+ "zcash_address",
  "zcash_keys",
  "zcash_protocol",
  "zip32",

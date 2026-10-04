@@ -84,25 +84,51 @@ fn seed(seed_phrase: Option<&str>) -> [u8; 64] {
 }
 
 fn derive_ufvk(seed_phrase: Option<&str>, account_index: u32, network: crate::Network) -> String {
-    use zcash_keys::keys::UnifiedSpendingKey;
-    use zcash_protocol::consensus::{MainNetwork, TestNetwork};
+    use zcash_keys::keys::{UnifiedFullViewingKey, UnifiedSpendingKey};
+    use zcash_protocol::consensus::{MainNetwork, Parameters, TestNetwork};
+
+    fn official_ufvk<P: Parameters>(uvk: UnifiedFullViewingKey, network: &P) -> String {
+        use zcash_address::unified::{Encoding as _, Fvk, Ufvk};
+
+        let value = Ufvk::try_from_items(vec![
+            Fvk::P2pkh(
+                uvk.transparent()
+                    .expect("transparent key")
+                    .serialize()
+                    .try_into()
+                    .expect("transparent key length"),
+            ),
+            Fvk::Orchard(uvk.orchard().expect("orchard key").to_bytes()),
+        ])
+        .expect("valid Official Ledger UFVK components");
+        UnifiedFullViewingKey::parse(&value)
+            .expect("valid Official Ledger UFVK")
+            .encode(network)
+    }
+
     let account = zip32::AccountId::try_from(account_index).expect("valid account index");
     let seed = seed(seed_phrase);
     match network {
-        crate::Network::Mainnet => UnifiedSpendingKey::from_seed(&MainNetwork, &seed, account)
-            .unwrap()
-            .to_unified_full_viewing_key()
-            .encode(&MainNetwork),
-        crate::Network::Testnet => UnifiedSpendingKey::from_seed(&TestNetwork, &seed, account)
-            .unwrap()
-            .to_unified_full_viewing_key()
-            .encode(&TestNetwork),
+        crate::Network::Mainnet => official_ufvk(
+            UnifiedSpendingKey::from_seed(&MainNetwork, &seed, account)
+                .unwrap()
+                .to_unified_full_viewing_key(),
+            &MainNetwork,
+        ),
+        crate::Network::Testnet => official_ufvk(
+            UnifiedSpendingKey::from_seed(&TestNetwork, &seed, account)
+                .unwrap()
+                .to_unified_full_viewing_key(),
+            &TestNetwork,
+        ),
         crate::Network::Regtest => {
             let p = local_network();
-            UnifiedSpendingKey::from_seed(&p, &seed, account)
-                .unwrap()
-                .to_unified_full_viewing_key()
-                .encode(&p)
+            official_ufvk(
+                UnifiedSpendingKey::from_seed(&p, &seed, account)
+                    .unwrap()
+                    .to_unified_full_viewing_key(),
+                &p,
+            )
         }
     }
 }
