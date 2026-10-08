@@ -1,8 +1,8 @@
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Apdu<'a> {
-    cla: u8,
-    ins: u8,
+    pub cla: u8,
+    pub ins: u8,
     pub p1: u8,
     pub p2: u8,
     pub data: &'a [u8],
@@ -48,7 +48,6 @@ pub fn handle(
     match apdu.ins {
         INS_GET_VK => get_viewing_key(seed_phrase, account_index, network),
         INS_GET_ADDRESS => get_address(seed_phrase, account_index, network),
-        0x52..=0x59 => pczt(response_data),
         INS_GET_FIRMWARE_VERSION => firmware_version(),
         _ => canned(response_data),
     }
@@ -60,8 +59,6 @@ fn get_viewing_key(
     network: crate::Network,
 ) -> Response {
     // GET_VK returns a big-endian u16 length followed by the UTF-8 UFVK.
-    // The value is intentionally a deterministic placeholder, not a valid
-    // cryptographic viewing key.
     let value = derive_ufvk(seed_phrase, account_index, network);
     let mut payload = (value.len() as u16).to_be_bytes().to_vec();
     payload.extend_from_slice(value.as_bytes());
@@ -69,14 +66,14 @@ fn get_viewing_key(
 }
 fn get_address(seed_phrase: Option<&str>, account_index: u32, network: crate::Network) -> Response {
     // Address responses are returned as a length-prefixed UTF-8 string by
-    // the app. This placeholder deliberately carries no account/key logic.
+    // the app.
     let value = derive_address(seed_phrase, account_index, network);
     let mut payload = (value.len() as u16).to_be_bytes().to_vec();
     payload.extend_from_slice(value.as_bytes());
     canned(&response_data(&payload, 0x9000))
 }
 
-fn seed(seed_phrase: Option<&str>) -> [u8; 64] {
+pub(crate) fn seed(seed_phrase: Option<&str>) -> [u8; 64] {
     use bip39::Mnemonic;
     Mnemonic::parse(seed_phrase.unwrap_or("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"))
         .expect("seed phrase must be a valid BIP39 mnemonic")
@@ -188,9 +185,6 @@ fn local_network() -> zcash_protocol::local_consensus::LocalNetwork {
         nu7: h,
     }
 }
-fn pczt(response_data: &str) -> Response {
-    canned(response_data)
-}
 fn firmware_version() -> Response {
     // Ledger's firmware response is version bytes followed by SW_OK. Keep a
     // stable mock version so clients can exercise version parsing.
@@ -204,7 +198,7 @@ fn canned(response_data: &str) -> Response {
 }
 
 /// Encode an APDU payload followed by its two-byte status word.
-fn response_data(payload: &[u8], status: u16) -> String {
+pub(crate) fn response_data(payload: &[u8], status: u16) -> String {
     let mut response = payload.to_vec();
     response.extend_from_slice(&status.to_be_bytes());
     hex::encode(response)

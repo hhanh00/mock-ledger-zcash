@@ -3,6 +3,7 @@ use serde::Deserialize;
 use warp::Filter;
 
 mod handlers;
+mod signing;
 
 #[derive(Debug, Deserialize)]
 struct Request {
@@ -34,7 +35,7 @@ struct Args {
     /// TCP port to listen on.
     #[arg(short, long, default_value_t = 9999)]
     port: u16,
-    /// Hexadecimal APDU response returned by every mock handler.
+    /// Fallback hexadecimal response for unsupported commands.
     #[arg(long, default_value = "9000")]
     response_data: String,
 }
@@ -49,8 +50,6 @@ pub enum Network {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    // These values define the mock app context. Handlers intentionally do not
-    // use them yet; no Ledger business logic is implemented.
     let seed_phrase = args.seed_phrase.clone();
     let account_index = args.account_index;
     let network = args.network;
@@ -63,6 +62,8 @@ async fn main() {
         std::process::exit(2);
     }
 
+    let signing_seed = handlers::seed(seed_phrase.as_deref());
+    let session = std::sync::Arc::new(std::sync::Mutex::new(signing::SigningSession::default()));
     let response_data = warp::any().map(move || response_data.clone());
     let route = warp::path::end()
         .and(warp::post())
@@ -85,6 +86,25 @@ async fn main() {
                     warp::http::StatusCode::BAD_REQUEST,
                 );
             };
+            if apdu.cla == 0xE0 && (0x52..=0x59).contains(&apdu.ins) {
+                let mut session = session.lock().expect("signing mutex poisoned");
+                let (payload, status) =
+                    match session.execute(apdu.ins, apdu.p1, apdu.p2, apdu.data, &signing_seed) {
+                        Ok(payload) => (payload, 0x9000),
+                        Err(error) => {
+                            eprintln!("APDU {:02x}: {error:#}", apdu.ins);
+                            *session = signing::SigningSession::default();
+                            (vec![], 0x6A80)
+                        }
+                    };
+                return warp::reply::with_status(
+                    warp::reply::json(&handlers::Response {
+                        data: handlers::response_data(&payload, status),
+                        error: None,
+                    }),
+                    warp::http::StatusCode::OK,
+                );
+            }
             warp::reply::with_status(
                 warp::reply::json(&handlers::handle(
                     &apdu,
